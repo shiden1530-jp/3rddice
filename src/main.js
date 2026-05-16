@@ -1,265 +1,193 @@
 import { ENEMIES, EVENT_POOL, RELICS, ROOM_TYPES, SKILLS, WEAPONS } from './data.js';
 
 const ui = {
-  hud: document.querySelector('#hud'),
-  map: document.querySelector('#node-map'),
-  combat: document.querySelector('#combat'),
-  room: document.querySelector('#room'),
-  log: document.querySelector('#log'),
+  hud: document.querySelector('#hud'), map: document.querySelector('#map'), room: document.querySelector('#room'), combat: document.querySelector('#combat'), log: document.querySelector('#log'), glossary: document.querySelector('#glossary'),
 };
 
 const state = {
-  floor: 1,
-  hp: 30,
-  maxHp: 30,
-  gold: 30,
-  weapon: structuredClone(WEAPONS.dagger),
-  relics: [],
-  skills: [structuredClone(SKILLS.reroll)],
-  inCombat: false,
-  combat: null,
-  currentNodes: [],
-  runOver: false,
+  floor: 1, hp: 30, maxHp: 30, gold: 30,
+  weapon: structuredClone(WEAPONS.dagger), relics: [], skills: [structuredClone(SKILLS.reroll)],
+  inCombat: false, combat: null, runOver: false,
+  map: { w: 7, h: 5, x: 0, y: 2, nodes: [] },
 };
 
-const rng = {
-  int(n) { return Math.floor(Math.random() * n); },
-  pick(arr) { return arr[this.int(arr.length)]; },
-};
+const rng = { int: (n) => Math.floor(Math.random() * n), pick: (arr) => arr[Math.floor(Math.random() * arr.length)] };
+const diceLabel = (arr) => arr.map((d) => `d${d}`).join(',');
+const log = (m) => (ui.log.textContent = `[F${state.floor}] ${m}\n` + ui.log.textContent);
+const rollDie = (s) => rng.int(s) + 1;
 
-function log(msg) {
-  ui.log.textContent = `[F${state.floor}] ${msg}\n` + ui.log.textContent;
-}
-
-function rollDie(sides) { return rng.int(sides) + 1; }
-function sortDesc(a) { return [...a].sort((x, y) => y - x); }
-
-function formatDice(dice) { return dice.map(d => `d${d}`).join(','); }
 function pickRelic() { return structuredClone(RELICS[rng.pick(Object.keys(RELICS))]); }
 function pickEnemy(kind = 'normal') {
   const pool = kind === 'elite' ? ['knight', 'assassin', 'giant'] : ['slime', 'slime', 'knight', 'assassin'];
   return structuredClone(ENEMIES[rng.pick(pool)]);
 }
+function sortDesc(a) { return [...a].sort((x, y) => y - x); }
 
-function getWeaponDice() {
-  let dice = [...state.weapon.attackDice];
-  if (state.relics.some(r => r.id === 'd6to8')) dice = dice.map(d => d === 6 ? 8 : d);
-  if (state.combat?.turn === 1 && state.relics.some(r => r.id === 'firstStrike')) dice.push(6);
-  return dice;
+function buildMap() {
+  const normal = ['battle', 'chest', 'gacha', 'merchant', 'rest', 'event'];
+  state.map.nodes = Array.from({ length: state.map.h }, (_, y) =>
+    Array.from({ length: state.map.w }, (_, x) => {
+      if (x === 0 && y === 2) return { type: 'start', revealed: true, done: true };
+      if (x === state.map.w - 1) return { type: y === 2 ? 'boss' : 'elite', revealed: false, done: false };
+      return { type: rng.pick(normal), revealed: x <= 1, done: false };
+    }),
+  );
 }
 
-function applyRollMods(rolls, sidesList) {
-  let out = rolls.map((v, i) => ({ v, s: sidesList[i] ?? 6 }));
-  if (state.relics.some(r => r.id === 'evenPlus')) out = out.map(o => o.v % 2 === 0 ? { ...o, v: o.v + 1 } : o);
-  if (state.relics.some(r => r.id === 'oddPlus')) out = out.map(o => o.v % 2 === 1 ? { ...o, v: o.v + 1 } : o);
-  if (state.combat.skillFlags.minFloor) out = out.map(o => ({ ...o, v: Math.max(o.v, state.combat.skillFlags.minFloor) }));
-  if (state.combat.skillFlags.explodeMax) {
-    const extra = [];
-    for (const o of out) if (o.v >= o.s) extra.push({ v: rollDie(6), s: 6 });
-    out.push(...extra);
-  }
-  if (state.relics.some(r => r.id === 'maxExtra')) {
-    const extra = [];
-    for (const o of out) if (o.v >= o.s) extra.push({ v: rollDie(4), s: 4 });
-    out.push(...extra);
-  }
-  return out.map(o => o.v);
+function legalMoves() {
+  const { x, y, w, h } = state.map;
+  return [[x + 1, y], [x + 1, y - 1], [x + 1, y + 1]].filter(([nx, ny]) => nx >= 0 && ny >= 0 && nx < w && ny < h);
 }
 
 function compareDamage(atkRolls, defRolls) {
   const a = sortDesc(atkRolls);
   const d = state.combat.skillFlags.ignoreDefense ? [] : sortDesc(defRolls);
   let dmg = 0;
-  for (let i = 0; i < a.length; i++) {
-    if (i >= d.length || a[i] > d[i]) dmg++;
-  }
+  for (let i = 0; i < a.length; i++) if (i >= d.length || a[i] > d[i]) dmg++;
   return { dmg, a, d };
 }
 
-function startCombat(enemy) {
-  state.inCombat = true;
-  state.combat = { enemy, turn: 1, skillFlags: {}, usedSkills: new Set() };
-  log(`${enemy.name} が現れた！`);
+function getWeaponDice() {
+  let dice = [...state.weapon.attackDice];
+  if (state.relics.some((r) => r.id === 'd6to8')) dice = dice.map((d) => (d === 6 ? 8 : d));
+  if (state.combat?.turn === 1 && state.relics.some((r) => r.id === 'firstStrike')) dice.push(6);
+  return dice;
+}
+
+function applyRollMods(rolls, sidesList) {
+  let out = rolls.map((v, i) => ({ v, s: sidesList[i] ?? 6 }));
+  if (state.relics.some((r) => r.id === 'evenPlus')) out = out.map((o) => (o.v % 2 === 0 ? { ...o, v: o.v + 1 } : o));
+  if (state.relics.some((r) => r.id === 'oddPlus')) out = out.map((o) => (o.v % 2 === 1 ? { ...o, v: o.v + 1 } : o));
+  if (state.combat.skillFlags.minFloor) out = out.map((o) => ({ ...o, v: Math.max(o.v, state.combat.skillFlags.minFloor) }));
+  if (state.combat.skillFlags.explodeMax) for (const o of [...out]) if (o.v >= o.s) out.push({ v: rollDie(6), s: 6 });
+  if (state.relics.some((r) => r.id === 'maxExtra')) for (const o of [...out]) if (o.v >= o.s) out.push({ v: rollDie(4), s: 4 });
+  return out.map((o) => o.v);
+}
+
+function useSkill(id) {
+  const sk = state.skills.find((s) => s.id === id);
+  if (!sk || sk.uses <= 0) return;
+  sk.uses--;
+  if (sk.type === 'rerollOne') state.combat.skillFlags.rerollOne = true;
+  if (sk.type === 'addTempDie') state.combat.skillFlags.tempDie = sk.value;
+  if (sk.type === 'explodeMax') state.combat.skillFlags.explodeMax = true;
+  if (sk.type === 'minFloor') state.combat.skillFlags.minFloor = sk.value;
+  if (sk.type === 'ignoreDefense') state.combat.skillFlags.ignoreDefense = true;
+  log(`スキル使用: ${sk.name}`);
   render();
 }
 
+function startCombat(enemy) { state.inCombat = true; state.combat = { enemy, turn: 1, skillFlags: {} }; log(`${enemy.name} が現れた！`); render(); }
+
 function playerAttack() {
   const c = state.combat;
-  const weaponDice = getWeaponDice();
-  if (c.skillFlags.tempDie) weaponDice.push(c.skillFlags.tempDie);
-  let atkRolls = weaponDice.map(rollDie);
-
-  if (c.skillFlags.rerollOne) {
-    const i = atkRolls.indexOf(Math.min(...atkRolls));
-    atkRolls[i] = rollDie(weaponDice[i]);
-  }
-  atkRolls = applyRollMods(atkRolls, weaponDice);
-  const defRolls = c.enemy.def.map(rollDie);
-  const result = compareDamage(atkRolls, defRolls);
-  c.enemy.hp -= result.dmg;
-
-  log(`あなたの攻撃 ${JSON.stringify(result.a)} vs ${JSON.stringify(result.d)} => ${result.dmg}ダメージ`);
-
+  const wDice = getWeaponDice(); if (c.skillFlags.tempDie) wDice.push(c.skillFlags.tempDie);
+  let atk = wDice.map(rollDie);
+  if (c.skillFlags.rerollOne) { const i = atk.indexOf(Math.min(...atk)); atk[i] = rollDie(wDice[i]); }
+  atk = applyRollMods(atk, wDice);
+  const res = compareDamage(atk, c.enemy.def.map(rollDie));
+  c.enemy.hp -= res.dmg;
+  log(`あなた ${JSON.stringify(res.a)} vs 敵防御 ${JSON.stringify(res.d)} => ${res.dmg}ダメージ`);
   if (c.enemy.hp <= 0) {
-    state.gold += c.enemy.reward;
-    log(`${c.enemy.name} を撃破。${c.enemy.reward}G獲得`);
-    state.inCombat = false;
-    state.combat = null;
-    state.floor++;
-    buildNodes();
-    render();
-    return;
+    state.gold += c.enemy.reward; state.inCombat = false; state.combat = null;
+    log(`${c.enemy.name} 撃破。${c.enemy.reward}G獲得`);
+    if (state.map.x === state.map.w - 1) { state.floor++; buildMap(); state.map.x = 0; state.map.y = 2; log('次の階層へ進んだ'); }
+    render(); return;
   }
-
   enemyAttack();
 }
 
 function enemyAttack() {
   const c = state.combat;
-  const eAtk = c.enemy.atk.map(rollDie);
-  const pDef = [6,6].map(rollDie);
-  const res = compareDamage(eAtk, pDef);
+  const res = compareDamage(c.enemy.atk.map(rollDie), [6, 6].map(rollDie));
   state.hp -= res.dmg;
-  log(`${c.enemy.name}の攻撃 ${JSON.stringify(res.a)} vs ${JSON.stringify(res.d)} => ${res.dmg}ダメージ`);
-
-  c.turn++;
-  c.skillFlags = {};
-  if (state.hp <= 0) {
-    state.runOver = true;
-    state.inCombat = false;
-    log('あなたは力尽きた... GAME OVER');
-  }
+  log(`${c.enemy.name} ${JSON.stringify(res.a)} vs あなた防御 ${JSON.stringify(res.d)} => ${res.dmg}ダメージ`);
+  c.turn++; c.skillFlags = {};
+  if (state.hp <= 0) { state.runOver = true; state.inCombat = false; log('GAME OVER'); }
   render();
 }
 
-function useSkill(skillId) {
-  const c = state.combat;
-  const skill = state.skills.find(s => s.id === skillId);
-  if (!skill || skill.uses <= 0) return;
-  skill.uses--;
-  c.usedSkills.add(skill.id);
-  if (skill.type === 'rerollOne') c.skillFlags.rerollOne = true;
-  if (skill.type === 'addTempDie') c.skillFlags.tempDie = skill.value;
-  if (skill.type === 'explodeMax') c.skillFlags.explodeMax = true;
-  if (skill.type === 'minFloor') c.skillFlags.minFloor = skill.value;
-  if (skill.type === 'ignoreDefense') c.skillFlags.ignoreDefense = true;
-  log(`スキル使用: ${skill.name}`);
-  render();
-}
-
-function buildNodes() {
-  const table = state.floor % 5 === 0
-    ? ['elite', 'chest', 'rest', 'gacha', 'boss']
-    : ['battle', 'chest', 'gacha', 'merchant', 'rest', 'event'];
-  state.currentNodes = Array.from({ length: 3 }, () => rng.pick(table));
-}
-
-function enterRoom(type) {
-  if (state.runOver || state.inCombat) return;
+function resolveRoom(type) {
   if (type === 'battle') return startCombat(pickEnemy('normal'));
   if (type === 'elite') return startCombat(pickEnemy('elite'));
   if (type === 'boss') return startCombat(structuredClone(ENEMIES.lichBoss));
-
   if (type === 'chest') {
     const roll = rng.int(5);
     if (roll === 0) { state.weapon = structuredClone(rng.pick(Object.values(WEAPONS))); log(`宝箱: 武器 ${state.weapon.name}`); }
     if (roll === 1) { const relic = pickRelic(); state.relics.push(relic); log(`宝箱: relic ${relic.name}`); }
     if (roll === 2) { state.hp = Math.min(state.maxHp, state.hp + 8); log('宝箱: 8回復'); }
-    if (roll === 3) { state.gold += 30; log('宝箱: 30G獲得'); }
-    if (roll === 4) { state.skills.push(structuredClone(rng.pick(Object.values(SKILLS)))); log('宝箱: スキル獲得'); }
+    if (roll === 3) { state.gold += 30; log('宝箱: 30G'); }
+    if (roll === 4) { const sk = structuredClone(rng.pick(Object.values(SKILLS))); state.skills.push(sk); log(`宝箱: スキル ${sk.name}`); }
   }
-
   if (type === 'gacha') {
-    if (state.gold < 20) log('ガチャ: お金不足');
-    else {
+    if (state.gold < 20) log('ガチャ: 20G不足'); else {
       state.gold -= 20;
-      const outcomes = ['relic', 'skill', 'weaponMut', 'cursePower'];
-      const got = rng.pick(outcomes);
-      if (got === 'relic') { const relic = pickRelic(); state.relics.push(relic); log(`ガチャ: レアrelic ${relic.name}`); }
+      const got = rng.pick(['relic', 'skill', 'weaponMut', 'cursePower']);
+      if (got === 'relic') { const relic = pickRelic(); state.relics.push(relic); log(`ガチャ: relic ${relic.name}`); }
       if (got === 'skill') { const sk = structuredClone(rng.pick(Object.values(SKILLS))); state.skills.push(sk); log(`ガチャ: スキル ${sk.name}`); }
-      if (got === 'weaponMut') { state.weapon.attackDice.push(rng.pick([4,6,8])); log('ガチャ: 武器ダイス+1'); }
-      if (got === 'cursePower') { state.weapon.attackDice.push(10); state.maxHp -= 2; state.hp = Math.min(state.hp, state.maxHp); log('ガチャ: 呪い強化(+d10, 最大HP-2)'); }
+      if (got === 'weaponMut') { state.weapon.attackDice.push(rng.pick([4, 6, 8])); log('ガチャ: 武器ダイス+1'); }
+      if (got === 'cursePower') { state.weapon.attackDice.push(10); state.maxHp -= 2; state.hp = Math.min(state.hp, state.maxHp); log('ガチャ: 呪い強化 +d10 / 最大HP-2'); }
     }
   }
+  if (type === 'merchant') { if (state.gold >= 25) { state.gold -= 25; const relic = pickRelic(); state.relics.push(relic); log(`商人: ${relic.name}`); } else log('商人: 25G必要'); }
+  if (type === 'rest') { state.hp = Math.min(state.maxHp, state.hp + 10); log('休憩: 10回復'); }
+  if (type === 'event') { const e = rng.pick(EVENT_POOL); e.effect(state, rng, pickRelic); log(`イベント: ${e.text}`); }
+}
 
-  if (type === 'merchant') {
-    if (state.gold >= 25) {
-      state.gold -= 25;
-      const relic = pickRelic();
-      state.relics.push(relic);
-      log(`商人: ${relic.name} を購入`);
-    } else log('商人: 25G必要');
-  }
-
-  if (type === 'rest') {
-    state.hp = Math.min(state.maxHp, state.hp + 10);
-    log('休憩: 10回復');
-  }
-
-  if (type === 'event') {
-    const e = rng.pick(EVENT_POOL);
-    e.effect(state, rng, pickRelic);
-    log(`イベント: ${e.text}`);
-  }
-
-  state.floor++;
-  buildNodes();
+function moveTo(nx, ny) {
+  if (state.inCombat || state.runOver) return;
+  if (!legalMoves().some(([x, y]) => x === nx && y === ny)) return;
+  state.map.x = nx; state.map.y = ny;
+  const node = state.map.nodes[ny][nx];
+  node.revealed = true; node.done = true;
+  legalMoves().forEach(([x, y]) => { state.map.nodes[y][x].revealed = true; });
+  resolveRoom(node.type);
   render();
 }
 
-function render() {
-  ui.hud.innerHTML = `
-    <h2>ステータス</h2>
-    <div class="hud-grid">
-      <div>HP: ${state.hp}/${state.maxHp}</div>
-      <div>階層: ${state.floor}</div>
-      <div>所持金: ${state.gold}G</div>
-      <div>武器: ${state.weapon.name} (${formatDice(state.weapon.attackDice)})</div>
-    </div>
-    <div><strong>Relics:</strong> ${(state.relics.map(r => `<span class="badge">${r.name}</span>`).join('') || 'なし')}</div>
-    <div><strong>Skills:</strong> ${state.skills.map(s => `<span class="badge">${s.name}(${s.uses})</span>`).join('')}</div>
+function renderGlossary() {
+  ui.glossary.innerHTML = `
+    <div class="small">${Object.values(ROOM_TYPES).map((t) => `<div><strong>${t.label}</strong>: ${t.desc}</div>`).join('')}</div>
+    <hr />
+    <div class="small"><strong>戦闘ルール:</strong> 攻撃/防御ダイスを降順に並べて比較。攻撃側が上回った数がダメージ。比較相手がいない余剰攻撃ダイスは成功扱い。</div>
   `;
-
-  if (state.runOver) {
-    ui.room.innerHTML = '<h2>ゲームオーバー</h2><button id="restart">最初から</button>';
-    document.querySelector('#restart').onclick = () => window.location.reload();
-    ui.map.classList.add('hidden');
-    ui.combat.classList.add('hidden');
-    return;
-  }
-
-  if (state.inCombat) {
-    ui.map.classList.add('hidden');
-    ui.combat.classList.remove('hidden');
-    const c = state.combat;
-    ui.combat.innerHTML = `
-      <h2>戦闘: ${c.enemy.name}</h2>
-      <div>敵HP: ${c.enemy.hp}</div>
-      <div>敵攻撃: ${formatDice(c.enemy.atk)} / 敵防御: ${formatDice(c.enemy.def)}</div>
-      <div class="btn-row" id="skill-buttons"></div>
-      <hr/>
-      <button id="attack">攻撃</button>
-    `;
-    const btnWrap = document.querySelector('#skill-buttons');
-    state.skills.forEach(s => {
-      const b = document.createElement('button');
-      b.textContent = `${s.name} (${s.uses})`;
-      b.disabled = s.uses <= 0;
-      b.onclick = () => useSkill(s.id);
-      btnWrap.appendChild(b);
-    });
-    document.querySelector('#attack').onclick = playerAttack;
-    ui.room.innerHTML = '<h2>戦闘中...</h2>';
-    return;
-  }
-
-  ui.combat.classList.add('hidden');
-  ui.map.classList.remove('hidden');
-  ui.map.innerHTML = `<h2>探索ノード</h2><div class="node-list">${state.currentNodes.map((n, i) => `<button data-node="${n}" data-i="${i}">${n}</button>`).join('')}</div>`;
-  ui.map.querySelectorAll('button').forEach(b => b.onclick = () => enterRoom(b.dataset.node));
-  ui.room.innerHTML = '<h2>部屋を選択してください</h2><p>戦闘とビルド強化を繰り返し、深層を目指そう。</p>';
 }
 
-buildNodes();
+function render() {
+  ui.hud.innerHTML = `<h2>ステータス</h2><div class="hud-grid">
+    <div class="kv">HP<br><strong>${state.hp}/${state.maxHp}</strong></div>
+    <div class="kv">階層<br><strong>${state.floor}</strong></div>
+    <div class="kv">所持金<br><strong>${state.gold}G</strong></div>
+    <div class="kv">武器<br><strong>${state.weapon.name}</strong><br>${diceLabel(state.weapon.attackDice)}</div>
+  </div>
+  <div><strong>Relics:</strong> ${state.relics.map((r) => `<span class="badge" title="${r.desc}">${r.name}</span>`).join('') || 'なし'}</div>
+  <div><strong>Skills:</strong> ${state.skills.map((s) => `<span class="badge" title="${s.desc}">${s.name}(${s.uses})</span>`).join('')}</div>`;
+
+  if (state.runOver) { ui.room.innerHTML = '<h2>ゲームオーバー</h2><button onclick="window.location.reload()">最初から</button>'; ui.combat.classList.add('hidden'); return; }
+
+  ui.map.innerHTML = `<h2>ダンジョンマップ（右に進む）</h2><div class="map-grid">${state.map.nodes.flatMap((row, y) => row.map((n, x) => {
+    const here = x === state.map.x && y === state.map.y;
+    const canMove = legalMoves().some(([mx, my]) => mx === x && my === y);
+    return `<div class="tile ${n.revealed ? 'revealed' : ''} ${here ? 'current' : ''}">${n.revealed ? ROOM_TYPES[n.type].label : '???'}${canMove && !state.inCombat ? `<button data-x="${x}" data-y="${y}">移動</button>` : ''}</div>`;
+  })).join('')}</div>`;
+  ui.map.querySelectorAll('button').forEach((b) => { b.onclick = () => moveTo(Number(b.dataset.x), Number(b.dataset.y)); });
+
+  if (state.inCombat) {
+    ui.combat.classList.remove('hidden');
+    const c = state.combat;
+    ui.combat.innerHTML = `<h2>戦闘: ${c.enemy.name} (HP:${c.enemy.hp})</h2><div>敵攻撃:${diceLabel(c.enemy.atk)} / 敵防御:${diceLabel(c.enemy.def)}</div><div id="skills"></div><button id="attack">攻撃</button>`;
+    const sk = ui.combat.querySelector('#skills');
+    state.skills.forEach((s) => { const b = document.createElement('button'); b.textContent = `${s.name}(${s.uses})`; b.disabled = s.uses <= 0; b.onclick = () => useSkill(s.id); sk.appendChild(b); });
+    ui.combat.querySelector('#attack').onclick = playerAttack;
+    ui.room.innerHTML = '<h2>戦闘中</h2><p>スキルを選んでから攻撃できます。</p>';
+  } else {
+    ui.combat.classList.add('hidden');
+    ui.room.innerHTML = '<h2>探索中</h2><p>青枠が現在地です。右方向の「移動」ボタンで次のマスへ進んでください。</p>';
+  }
+
+  renderGlossary();
+}
+
+buildMap();
 render();
-log('ダンジョン探索開始');
+log('探索開始: マスを移動して進もう');

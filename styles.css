@@ -1,60 +1,18 @@
-:root {
-  color-scheme: dark;
-  font-family: sans-serif;
-}
-body {
-  margin: 0;
-  background: #101418;
-  color: #e9eef5;
-}
-.container {
-  max-width: 980px;
-  margin: 0 auto;
-  padding: 16px;
-}
-.panel {
-  background: #19222c;
-  border: 1px solid #283647;
-  border-radius: 10px;
-  padding: 12px;
-  margin-bottom: 12px;
-}
-.hidden { display: none; }
-.hud-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 8px;
-}
-.node-list, .btn-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-button {
-  border: 1px solid #3e5570;
-  background: #243547;
-  color: #f2f6fb;
-  border-radius: 8px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-button:hover { background: #2d4157; }
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-.badge {
-  display: inline-block;
-  background: #2a3d52;
-  border: 1px solid #4b6687;
-  border-radius: 999px;
-  padding: 2px 8px;
-  margin-right: 4px;
-  margin-bottom: 4px;
-  font-size: 12px;
-}
-.log {
-  max-height: 260px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 14px;
-  line-height: 1.45;
-}
-hr { border-color: #2d4157; }
+:root { color-scheme: dark; font-family: 'Segoe UI', sans-serif; }
+body { margin: 0; background:#0f141a; color:#ebf2f9; }
+.container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.panel { background:#18222d; border:1px solid #2f4256; border-radius:12px; padding:12px; margin-bottom:12px; }
+.hidden { display:none; }
+.hud-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:8px; }
+.kv { background:#223244; border-radius:8px; padding:8px; }
+.map-grid { display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; }
+.tile { min-height:72px; border:1px solid #3e5570; border-radius:8px; padding:6px; background:#223244; font-size:12px; }
+.tile.revealed { background:#2c3f54; }
+.tile.current { border:2px solid #7ad0ff; box-shadow:0 0 0 2px #7ad0ff33 inset; }
+.tile button { width:100%; margin-top:6px; }
+button { border:1px solid #496684; background:#2a3e52; color:#f3f8fd; border-radius:8px; padding:8px 10px; cursor:pointer; }
+button:hover { background:#34506b; }
+button:disabled { opacity:.5; cursor:not-allowed; }
+.badge { display:inline-block; margin:2px 4px 2px 0; padding:2px 8px; border-radius:999px; background:#2a3d52; border:1px solid #4b6687; font-size:12px; }
+.log { max-height:260px; overflow:auto; white-space:pre-wrap; font-size:13px; }
+.small { opacity:.9; font-size:13px; }
