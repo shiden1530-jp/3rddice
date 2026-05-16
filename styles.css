@@ -1,0 +1,60 @@
+:root {
+  color-scheme: dark;
+  font-family: sans-serif;
+}
+body {
+  margin: 0;
+  background: #101418;
+  color: #e9eef5;
+}
+.container {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 16px;
+}
+.panel {
+  background: #19222c;
+  border: 1px solid #283647;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.hidden { display: none; }
+.hud-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.node-list, .btn-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+button {
+  border: 1px solid #3e5570;
+  background: #243547;
+  color: #f2f6fb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+button:hover { background: #2d4157; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.badge {
+  display: inline-block;
+  background: #2a3d52;
+  border: 1px solid #4b6687;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-right: 4px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.log {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.45;
+}
+hr { border-color: #2d4157; }
